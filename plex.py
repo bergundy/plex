@@ -36,11 +36,26 @@ def get_window(env):
     return session.attached_window()
 
 
-def run_in_pane(window, command, progress_file):
+def run_in_pane(window, task, progress_file):
+    script_file = tempfile.mktemp()
+    script = """echo 'plex>' Running task: {0} 1>&2
+echo 'plex>' {3} 1>&2
+function plex_cleanup {{
+    RC=$?
+    echo $TMUX_PANE $RC >> {1}
+    exit $RC
+}}
+rm {2}
+trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
+{3}
+""".format(task.name, progress_file, script_file, task.command)
+
+    with open(script_file, 'w') as f:
+        f.write(script)
+
     pane = window.split_window()
     window.select_layout('tiled')
-    pane.send_keys(command + '; export RC=$?; echo $TMUX_PANE $RC >> {}; [ $RC = 0 ] && exit'
-                   .format(progress_file))
+    pane.send_keys('sh {} && exit'.format(script_file))
     return pane.get('pane_id')
 
 
@@ -61,7 +76,7 @@ class Task(object):
             setattr(self, k, v)
 
     def start(self, window, progress_file):
-        self.pane_id = run_in_pane(window, self.command, progress_file)
+        self.pane_id = run_in_pane(window, self, progress_file)
         self.started = True
         self.start_time = time.time()
 
