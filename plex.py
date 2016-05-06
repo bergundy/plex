@@ -86,8 +86,8 @@ class Task(object):
         for k, v in kwargs.iteritems():
             setattr(self, k, v)
 
-    def start(self, window, progress_file):
-        self.pane_id = run_in_pane(window, self, progress_file)
+    def start(self, pane_id):
+        self.pane_id = pane_id
         self.started = True
         self.start_time = time.time()
 
@@ -97,17 +97,20 @@ class Task(object):
         self.end_time = time.time()
         self.return_code = int(return_code)
 
-    def __repr__(self):
+    @property
+    def status(self):
         if self.completed:
             if self.return_code == 0:
-                status = 'SUCCEEDED'
+                return 'SUCCEEDED'
             else:
-                status = 'FAILED'
+                return 'FAILED'
         elif self.started:
-            status = 'STARTED'
+            return 'STARTED'
         else:
-            status = 'PENDING'
-        return 'Task({}, {})'.format(self.name, status)
+            return 'PENDING'
+
+    def __repr__(self):
+        return 'Task({}, {})'.format(self.name, self.status)
 
 
 def execute(window, flow, progress_file):
@@ -121,21 +124,22 @@ def execute(window, flow, progress_file):
 
     for task in runnable:
         try:
-            task.start(window, progress_file)
+            task.start(run_in_pane(window, task, progress_file))
         except (tmuxp.exc.TmuxpException, RuntimeError):
             continue
 
+    last_done = 0
     for i in count():
         try:
-            pane_id, return_code = queue.get(timeout=0.3)
+            pane_id, return_code = queue.get(timeout=0.1)
+            last_done = i
             for task in incomplete.itervalues():
                 if task.pane_id == pane_id:
                     task.complete(return_code)
                     return execute(window, flow, progress_file)
         except Queue.Empty:
-            if i % 10 == 0:
+            if (i - last_done) % 20 == 19:
                 kill_dead_panes(window)
-            pass
         finally:
             print_rows(report(flow))
 
