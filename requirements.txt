@@ -1,4 +1,0 @@
-tmuxp
-tabulate
-click
-pyyaml
