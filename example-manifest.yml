@@ -29,7 +29,7 @@ flow:
   - Clear report
 
 - name: Display Report
-  command: cat $REPORT | cowsay -t && sleep 3
+  command: cat $REPORT | cowsay -nt && sleep 3
   depends:
   - Count words
   - Count distinct words

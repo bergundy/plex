@@ -1,6 +1,8 @@
 import Queue
 import sys
 import threading
+from operator import attrgetter
+
 import os
 import time
 from itertools import cycle, chain, count
@@ -14,6 +16,7 @@ import tempfile
 
 
 queue = Queue.Queue()
+select_keys = (lambda dct, *keys: {k: dct[k] for k in keys})
 parenthesize = '({})'.format
 V = click.style(u'\u2713', fg='green')
 X = click.style('X', fg='red')
@@ -27,12 +30,12 @@ def fmt_time(s):
 
 def get_window(env):
     s = tmuxp.Server()
+    for k, v in env.iteritems():
+        s.set_environment(k, v)
     session = s.getById('$' + os.environ['TMUX'].split(',')[-1])
     if session is None:
         raise ValueError('session can not be None')
-
-    for k, v in env.iteritems():
-        s.set_environment(k, v)
+    # noinspection PyUnresolvedReferences
     return session.attached_window()
 
 
@@ -113,35 +116,44 @@ class Task(object):
         return 'Task({}, {})'.format(self.name, self.status)
 
 
-def execute(window, flow, progress_file):
-    incomplete = {task.name: task for task in flow if not task.completed}
+def traverse(window, flow, progress_file):
+    while True:
+        runnable, running, incomplete, failed = get_run_status(flow)
+        if not runnable and not running:
+            return not failed
+
+        for task in runnable:
+            try:
+                pane_id = run_in_pane(window, task, progress_file)
+            except (tmuxp.exc.TmuxpException, RuntimeError):
+                continue
+            else:
+                task.start(pane_id)
+
+        last_done = 0
+        for i in count():
+            try:
+                pane_id, return_code = queue.get(timeout=0.1)
+                last_done = i
+                for task in incomplete:
+                    if task.pane_id == pane_id:
+                        task.complete(return_code)
+                        break
+                break
+            except Queue.Empty:
+                if (i - last_done) % 20 == 19:
+                    kill_dead_panes(window)
+            finally:
+                print_rows(report(flow))
+
+
+def get_run_status(flow):
+    incomplete = [task for task in flow if not task.completed]
     failed = {task.name for task in flow if task.return_code != 0}
-    runnable = [task for task in incomplete.itervalues()
-                if not task.started and not task.depends & (incomplete.viewkeys() | failed)]
-    running = [task for task in incomplete.itervalues() if task.started]
-    if not runnable and not running:
-        return not failed
-
-    for task in runnable:
-        try:
-            task.start(run_in_pane(window, task, progress_file))
-        except (tmuxp.exc.TmuxpException, RuntimeError):
-            continue
-
-    last_done = 0
-    for i in count():
-        try:
-            pane_id, return_code = queue.get(timeout=0.1)
-            last_done = i
-            for task in incomplete.itervalues():
-                if task.pane_id == pane_id:
-                    task.complete(return_code)
-                    return execute(window, flow, progress_file)
-        except Queue.Empty:
-            if (i - last_done) % 20 == 19:
-                kill_dead_panes(window)
-        finally:
-            print_rows(report(flow))
+    runnable = [task for task in incomplete
+                if not task.started and not task.depends & (set(map(attrgetter('name'), incomplete)) | failed)]
+    running = [task for task in incomplete if task.started]
+    return runnable, running, incomplete, failed
 
 
 def print_rows(rows):
@@ -158,11 +170,13 @@ def report(flow):
             name = task.name
         elif task.completed:
             check = V if task.return_code == 0 else X
-            delta = (fmt_time(task.end_time - task.start_time), fmt_time(task.end_time - min_start_time))
+            delta = (fmt_time(task.end_time - task.start_time),
+                     parenthesize(fmt_time(task.end_time - min_start_time)))
             name = task.name
         else:
             check = next(task.spinner)
-            delta = (fmt_time(time.time() - task.start_time), fmt_time(time.time() - min_start_time))
+            delta = (fmt_time(time.time() - task.start_time),
+                     parenthesize(fmt_time(time.time() - min_start_time)))
             name = click.style(task.name, fg='cyan')
         yield (check, name) + delta
 
@@ -199,10 +213,9 @@ def run(flow, env):
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
     t0 = time.time()
     try:
-        if execute(window, flow, progress_file):
+        if traverse(window, flow, progress_file):
             print_rows(chain(report(flow), [(V, click.style('SUCCESS', bg='green', fg='black'),
                                              fmt_time(time.time() - t0), '')]))
-            kill_dead_panes(window)
             return True
         else:
             print_rows(chain(report(flow), [(X, click.style('FAILED', bg='red'), fmt_time(time.time() - t0), '')]))
@@ -217,26 +230,7 @@ def kill_dead_panes(window):
         pane.cmd('kill-pane')
 
 
-def reset_task(dct):
-    del dct['started']
-    del dct['completed']
-    del dct['return_code']
-    del dct['start_time']
-    del dct['end_time']
-    return dct
-
-
-def task_constructor(dct):
-    if dct.get('started'):
-        if dct.get('completed'):
-            if dct.get('return_code', 0) != 0:
-                reset_task(dct)
-        else:
-            reset_task(dct)
-    return Task(**dct)
-
-
-def task_representer(dumper, task):
+def task_repr(dumper, task):
     dct = {
         'name': task.name,
         'command': task.command,
@@ -250,14 +244,18 @@ def task_representer(dumper, task):
     return dumper.represent_dict(dct)
 
 
-yaml.add_representer(Task, task_representer)
+yaml.add_representer(Task, task_repr)
+
+
+should_reset = (lambda dct: not dct.get('return_code', 0) if dct.get('completed', False) else dct.get('started'))
+reset_task = (lambda dct: select_keys(dct, 'name', 'command', 'depends'))
 
 
 def load(path):
     with open(path) as f:
         manifest = yaml.safe_load(f)
-        manifest['flow'] = map(task_constructor, manifest['flow'])
-        return manifest
+        flow = [Task(**(reset_task(dct) if should_reset(dct) else dct)) for dct in manifest['flow']]
+        return {'flow': flow, 'env': dict(manifest['env'])}
 
 
 @click.command()
