@@ -30,11 +30,16 @@ def fmt_time(s):
 
 def get_window(env):
     s = tmuxp.Server()
-    for k, v in env.iteritems():
-        s.set_environment(k, v)
-    session = s.getById('$' + os.environ['TMUX'].split(',')[-1])
+    try:
+        session = s.getById('$' + os.environ['TMUX'].split(',')[-1])
+    except KeyError:
+        os.execvp('tmux', ['tmux', 'new'] + sys.argv)
+        session = None
+
     if session is None:
         raise ValueError('session can not be None')
+    for k, v in env.iteritems():
+        s.set_environment(k, v)
     # noinspection PyUnresolvedReferences
     return session.attached_window()
 
@@ -150,7 +155,7 @@ def traverse(window, flow, progress_file):
         except Queue.Empty:
             if possibly_done:
                 return not failed
-            if (i - last_done) % 20 == 19:
+            if (i - last_done) % 5 == 4:
                 kill_dead_panes(window)
 
         print_rows(report(flow))
@@ -243,6 +248,7 @@ def run(flow, env):
 
     window.set_window_option('remain-on-exit', 'off')
     kill_dead_panes(window)
+    click.prompt('Press any key to exit', prompt_suffix='..', default='', show_default=False)
     return success
 
 
