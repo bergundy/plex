@@ -238,16 +238,22 @@ def load(path):
 @click.argument('manifest-file', type=click.Path(dir_okay=False))
 def main(save, save_dir, manifest_file):
     save_file = os.path.join(save_dir, manifest_file)
-    try:
-        manifest = load(save_file)
-    except IOError:
+    if save:
+        try:
+            manifest = load(save_file)
+        except IOError:
+            manifest = load(manifest_file)
+    else:
         manifest = load(manifest_file)
 
-    success = run(manifest['flow'], manifest['env'])
-    if save:
-        with open(save_file, 'w') as f:
-            yaml.dump(manifest, f)
-    sys.exit(not success)
+    success = False
+    try:
+        success = run(manifest['flow'], manifest['env'])
+    finally:
+        if save:
+            with open(save_file, 'w') as f:
+                yaml.dump(manifest, f)
+        sys.exit(not success)
 
 
 if __name__ == '__main__':
