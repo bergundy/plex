@@ -291,10 +291,10 @@ def load(path):
 @click.command()
 @click.option('--restart/--no-restart', default=False)
 @click.option('--save/--no-save', default=True)
-@click.option('--save-dir', default=tempfile.gettempdir(), type=click.Path(file_okay=False, writable=True))
+@click.option('--save-file', type=click.Path(file_okay=False, writable=True))
 @click.argument('manifest-file', type=click.Path(dir_okay=False))
-def main(restart, save, save_dir, manifest_file):
-    save_file = os.path.join(save_dir, '.plex-save-' + manifest_file)
+def main(restart, save, save_file, manifest_file):
+    save_file = save_file or os.path.join(tempfile.gettempdir(), '.plex-save-' + manifest_file)
     if not restart:
         manifest = load(save_file)
         # IOError is ignored
