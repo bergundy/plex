@@ -67,7 +67,6 @@ trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
         else:
             pane = window.split_window()
             window.select_layout('tiled')
-            pane.send_keys('tmux set remain-on-exit on')
             pane.send_keys('sh {} && exit'.format(script_file))
 
     return pane.get('pane_id')
@@ -201,6 +200,7 @@ def tail_f_loop(progress_file):
 
 def run(flow, env):
     window = get_window(env)
+    window.set_window_option('remain-on-exit', 'on')
 
     progress_file = tempfile.mktemp()
     with open(progress_file, 'w'):
@@ -221,6 +221,7 @@ def run(flow, env):
             print_rows(chain(report(flow), [(X, click.style('FAILED', bg='red'), fmt_time(time.time() - t0), '')]))
             return False
     finally:
+        window.set_window_option('remain-on-exit', 'off')
         kill_dead_panes(window)
 
 
