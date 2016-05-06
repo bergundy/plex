@@ -3,7 +3,7 @@ import sys
 import threading
 import os
 import time
-from itertools import cycle, chain
+from itertools import cycle, chain, count
 
 import click
 import tabulate
@@ -38,24 +38,35 @@ def get_window(env):
 
 def run_in_pane(window, task, progress_file):
     script_file = tempfile.mktemp()
-    script = """echo 'plex>' Running task: {0} 1>&2
-echo 'plex>' {3} 1>&2
+    script = """echo 'plex>' Starting: {} 1>&2
+echo 'plex>' {} 1>&2
 function plex_cleanup {{
     RC=$?
-    echo $TMUX_PANE $RC >> {1}
+    echo $TMUX_PANE $RC >> {}
     exit $RC
 }}
-rm {2}
+rm {}
 trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
-{3}
-""".format(task.name, progress_file, script_file, task.command)
+{}
+""".format(repr(task.name), repr(task.command), progress_file, script_file, task.command)
 
     with open(script_file, 'w') as f:
         f.write(script)
 
-    pane = window.split_window()
-    window.select_layout('tiled')
-    pane.send_keys('sh {} && exit'.format(script_file))
+    panes = window.list_panes()
+    free_panes = [pane for pane in panes if pane.get('pane_dead') == '1']
+    if free_panes:
+        pane = free_panes[0]
+        pane.cmd('respawn-pane', 'sh {} && exit'.format(script_file))
+    else:
+        if len(panes) >= 4:
+            raise RuntimeError("Out of panes")
+        else:
+            pane = window.split_window()
+            window.select_layout('tiled')
+            pane.send_keys('tmux set remain-on-exit on')
+            pane.send_keys('sh {} && exit'.format(script_file))
+
     return pane.get('pane_id')
 
 
@@ -81,6 +92,7 @@ class Task(object):
         self.start_time = time.time()
 
     def complete(self, return_code):
+        self.pane_id = None
         self.completed = True
         self.end_time = time.time()
         self.return_code = int(return_code)
@@ -110,10 +122,10 @@ def execute(window, flow, progress_file):
     for task in runnable:
         try:
             task.start(window, progress_file)
-        except tmuxp.exc.TmuxpException:
+        except (tmuxp.exc.TmuxpException, RuntimeError):
             continue
 
-    while True:
+    for i in count():
         try:
             pane_id, return_code = queue.get(timeout=0.3)
             for task in incomplete.itervalues():
@@ -121,6 +133,8 @@ def execute(window, flow, progress_file):
                     task.complete(return_code)
                     return execute(window, flow, progress_file)
         except Queue.Empty:
+            if i % 10 == 0:
+                kill_dead_panes(window)
             pass
         finally:
             print_rows(report(flow))
@@ -180,13 +194,23 @@ def run(flow, env):
 
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
     t0 = time.time()
-    if execute(window, flow, progress_file):
-        print_rows(chain(report(flow), [(V, click.style('SUCCESS', bg='green', fg='black'),
-                                         fmt_time(time.time() - t0), '')]))
-        return True
-    else:
-        print_rows(chain(report(flow), [(X, click.style('FAILED', bg='red'), fmt_time(time.time() - t0), '')]))
-        return False
+    try:
+        if execute(window, flow, progress_file):
+            print_rows(chain(report(flow), [(V, click.style('SUCCESS', bg='green', fg='black'),
+                                             fmt_time(time.time() - t0), '')]))
+            kill_dead_panes(window)
+            return True
+        else:
+            print_rows(chain(report(flow), [(X, click.style('FAILED', bg='red'), fmt_time(time.time() - t0), '')]))
+            return False
+    finally:
+        kill_dead_panes(window)
+
+
+def kill_dead_panes(window):
+    dead_panes = [pane for pane in window.list_panes() if pane.get('pane_dead') == '1']
+    for pane in dead_panes:
+        pane.cmd('kill-pane')
 
 
 def reset_task(dct):
