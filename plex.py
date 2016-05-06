@@ -296,8 +296,10 @@ def load(path):
 def main(restart, save, save_file, manifest_file):
     save_file = save_file or os.path.join(tempfile.gettempdir(), '.plex-save-' + manifest_file)
     if not restart:
-        manifest = load(save_file)
-        # IOError is ignored
+        try:
+            manifest = load(save_file)
+        except IOError:
+            manifest = load(manifest_file)
     else:
         manifest = load(manifest_file)
 
