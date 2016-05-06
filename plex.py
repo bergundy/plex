@@ -287,7 +287,7 @@ def load(path):
 
 @click.command()
 @click.option('--save/--no-save', default=True)
-@click.option('--save-dir', default='/tmp', type=click.Path(file_okay=False, writable=True))
+@click.option('--save-dir', default=tempfile.gettempdir(), type=click.Path(file_okay=False, writable=True))
 @click.argument('manifest-file', type=click.Path(dir_okay=False))
 def main(save, save_dir, manifest_file):
     save_file = os.path.join(save_dir, manifest_file)
