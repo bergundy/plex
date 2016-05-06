@@ -137,13 +137,16 @@ def report(flow):
         if not task.started:
             check = ' '
             delta = (click.style('PENDING', fg='blue'), '')
+            name = task.name
         elif task.completed:
             check = V if task.return_code == 0 else X
             delta = (fmt_time(task.end_time - task.start_time), fmt_time(task.end_time - min_start_time))
+            name = task.name
         else:
             check = next(task.spinner)
             delta = (fmt_time(time.time() - task.start_time), fmt_time(time.time() - min_start_time))
-        yield (check, task.name) + delta
+            name = click.style(task.name, fg='cyan')
+        yield (check, name) + delta
 
 
 def tail_f(filename):
