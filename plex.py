@@ -2,7 +2,6 @@ import Queue
 import logging
 import sys
 import threading
-from operator import attrgetter
 
 import os
 import time
@@ -42,23 +41,22 @@ def get_window(env):
 
 def run_in_pane(window, task, progress_file):
     script_file = tempfile.mktemp()
-    script = """echo 'plex>' Starting: {} 1>&2
-echo 'plex>' {} 1>&2
+    script = """echo 'plex>' Starting: {name!r} 1>&2
+echo 'plex>' {command!r} 1>&2
 function plex_cleanup {{
     RC=$?
-    echo $TMUX_PANE $RC >> {}
+    echo $RC {name!r} >> {progress_file}
     exit $RC
 }}
-rm {}
 trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
-{}
-""".format(repr(task.name), repr(task.command), progress_file, script_file, task.command)
+{command}
+""".format(name=task.name, command=task.command, progress_file=progress_file, script_file=script_file)
 
     with open(script_file, 'w') as f:
         f.write(script)
 
     panes = window.list_panes()
-    free_panes = [pane for pane in panes if pane.get('pane_dead') == '1']
+    free_panes = get_dead_panes(panes)
     if free_panes:
         pane = free_panes[0]
         pane.cmd('respawn-pane', 'sh {} && exit'.format(script_file))
@@ -71,6 +69,11 @@ trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
             pane.send_keys('sh {} && exit'.format(script_file))
 
     return pane.get('pane_id')
+
+
+def get_dead_panes(panes):
+    free_panes = [pane for pane in panes if pane.get('pane_dead') == '1']
+    return free_panes
 
 
 class Task(object):
@@ -120,7 +123,10 @@ def traverse(window, flow, progress_file):
     while True:
         runnable, running, incomplete, failed = get_run_status(flow)
         if not runnable and not running:
-            return not failed
+            panes = window.list_panes()
+            dead_panes = get_dead_panes(panes)
+            if len(panes) - 1 == len(dead_panes):
+                return not failed
 
         for task in runnable:
             try:
@@ -133,10 +139,10 @@ def traverse(window, flow, progress_file):
         last_done = 0
         for i in count():
             try:
-                pane_id, return_code = queue.get(timeout=0.1)
+                name, return_code = queue.get(timeout=0.1)
                 last_done = i
-                for task in incomplete:
-                    if task.pane_id == pane_id:
+                for task in incomplete + failed:
+                    if task.name == name:
                         task.complete(return_code)
                         break
                 break
@@ -149,9 +155,10 @@ def traverse(window, flow, progress_file):
 
 def get_run_status(flow):
     incomplete = [task for task in flow if not task.completed]
-    failed = {task.name for task in flow if task.return_code != 0}
+    failed = [task for task in flow if task.return_code != 0]
+    names = (lambda tasks: {t.name for t in tasks})
     runnable = [task for task in incomplete
-                if not task.started and not task.depends & (set(map(attrgetter('name'), incomplete)) | failed)]
+                if not task.started and not task.depends & (names(incomplete) | names(failed))]
     running = [task for task in incomplete if task.started]
     return runnable, running, incomplete, failed
 
@@ -195,8 +202,8 @@ def tail_f(filename):
 
 def tail_f_loop(progress_file):
     for line in tail_f(progress_file):
-        pane_id, status = line.strip().split()
-        queue.put((pane_id, status))
+        return_code, name = line.strip().split(' ', 1)
+        queue.put((name, return_code))
 
 
 def print_conclusion(flow, success, start_time):
