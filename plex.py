@@ -1,4 +1,5 @@
 import Queue
+import logging
 import sys
 import threading
 from operator import attrgetter
@@ -198,6 +199,15 @@ def tail_f_loop(progress_file):
         queue.put((pane_id, status))
 
 
+def print_conclusion(flow, success, start_time):
+    if success:
+        conclusion = (V, click.style('SUCCESS', bg='green', fg='black'))
+    else:
+        conclusion = (X, click.style('FAILED', bg='red'))
+
+    print_rows(chain(report(flow), [conclusion + (fmt_time(time.time() - start_time), '')]))
+
+
 def run(flow, env):
     window = get_window(env)
     window.set_window_option('remain-on-exit', 'on')
@@ -212,17 +222,18 @@ def run(flow, env):
 
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
     t0 = time.time()
+    # noinspection PyBroadException
     try:
-        if traverse(window, flow, progress_file):
-            print_rows(chain(report(flow), [(V, click.style('SUCCESS', bg='green', fg='black'),
-                                             fmt_time(time.time() - t0), '')]))
-            return True
-        else:
-            print_rows(chain(report(flow), [(X, click.style('FAILED', bg='red'), fmt_time(time.time() - t0), '')]))
-            return False
-    finally:
-        window.set_window_option('remain-on-exit', 'off')
-        kill_dead_panes(window)
+        success = traverse(window, flow, progress_file)
+        print_conclusion(flow, success, t0)
+    except BaseException:
+        success = False
+        print_conclusion(flow, success, t0)
+        logging.exception('Failed to finish running flow')
+
+    window.set_window_option('remain-on-exit', 'off')
+    kill_dead_panes(window)
+    return success
 
 
 def kill_dead_panes(window):
@@ -281,14 +292,11 @@ def main(save, save_dir, manifest_file):
     else:
         manifest = load(manifest_file)
 
-    success = False
-    try:
-        success = run(manifest['flow'], manifest['env'])
-    finally:
-        if save:
-            with open(save_file, 'w') as f:
-                yaml.dump(manifest, f)
-        sys.exit(not success)
+    success = run(manifest['flow'], manifest['env'])
+    if save:
+        with open(save_file, 'w') as f:
+            yaml.dump(manifest, f)
+    sys.exit(not success)
 
 
 if __name__ == '__main__':
