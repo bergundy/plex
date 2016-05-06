@@ -247,7 +247,15 @@ def task_repr(dumper, task):
 yaml.add_representer(Task, task_repr)
 
 
-should_reset = (lambda dct: not dct.get('return_code', 0) if dct.get('completed', False) else dct.get('started'))
+def should_reset(dct):
+    if dct.get('started'):
+        if dct.get('completed'):
+            return dct.get('return_code', 0) != 0
+        else:
+            return True
+    else:
+        return False
+
 reset_task = (lambda dct: select_keys(dct, 'name', 'command', 'depends'))
 
 
