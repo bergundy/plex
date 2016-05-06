@@ -28,8 +28,8 @@ flow:
   - Prepare words
   - Clear report
 
-- name: Display Report
-  command: cat $REPORT | cowsay -nt && sleep 3
+- name: Display report
+  command: vim $REPORT
   depends:
   - Count words
   - Count distinct words

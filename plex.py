@@ -128,6 +128,8 @@ def traverse(window, flow, progress_file):
     last_done = 0
 
     for i in count():
+        print_rows(report(flow))
+
         possibly_done = False
 
         runnable, running, incomplete, failed = get_run_status(flow)
@@ -155,10 +157,8 @@ def traverse(window, flow, progress_file):
         except Queue.Empty:
             if possibly_done:
                 return not failed
-            if (i - last_done) % 5 == 4:
+            if (i - last_done) % 6 == 5:
                 kill_dead_panes(window)
-
-        print_rows(report(flow))
 
 
 def get_run_status(flow):
@@ -177,7 +177,8 @@ def print_rows(rows):
 
 
 def report(flow):
-    min_start_time = min(task.start_time for task in flow if task.start_time)
+    now = time.time()
+    min_start_time = min(task.start_time or now for task in flow)
     for task in flow:
         if not task.started:
             check = ' '
@@ -190,8 +191,8 @@ def report(flow):
             name = task.name
         else:
             check = next(task.spinner)
-            delta = (fmt_time(time.time() - task.start_time),
-                     parenthesize(fmt_time(time.time() - min_start_time)))
+            delta = (fmt_time(now - task.start_time),
+                     parenthesize(fmt_time(now - min_start_time)))
             name = click.style(task.name, fg='cyan')
         yield (check, name) + delta
 
