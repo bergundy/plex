@@ -72,12 +72,15 @@ class Task(object):
 
     def __repr__(self):
         if self.completed:
-            status = 'COMPLETED'
+            if self.return_code == 0:
+                status = 'SUCCEEDED'
+            else:
+                status = 'FAILED'
         elif self.started:
             status = 'STARTED'
         else:
             status = 'PENDING'
-        return '<{}, {}>'.format(self.name, status)
+        return 'Task({}, {})'.format(self.name, status)
 
 
 def execute(window, flow, progress_file):
@@ -177,8 +180,7 @@ def reset_task(dct):
     return dct
 
 
-def task_constructor(loader, node):
-    dct = loader.construct_mapping(node, deep=True)
+def task_constructor(dct):
     if dct.get('started'):
         if dct.get('completed'):
             if dct.get('return_code', 0) != 0:
@@ -192,23 +194,24 @@ def task_representer(dumper, task):
     dct = {
         'name': task.name,
         'command': task.command,
-        'depends': task.depends,
+        'depends': list(task.depends),
         'started': task.started,
         'completed': task.completed,
         'start_time': task.start_time,
         'end_time': task.end_time,
         'return_code': task.return_code
     }
-    return dumper.represent_mapping('!task', dct)
+    return dumper.represent_dict(dct)
 
 
 yaml.add_representer(Task, task_representer)
-yaml.add_constructor('!task', task_constructor)
 
 
 def load(path):
     with open(path) as f:
-        return yaml.load(f)
+        manifest = yaml.safe_load(f)
+        manifest['flow'] = map(task_constructor, manifest['flow'])
+        return manifest
 
 
 @click.command()
