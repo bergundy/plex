@@ -1,0 +1,35 @@
+env:
+  URL: 'https://raw.githubusercontent.com/bergundy/ec2grep/master/README.md'
+  REPORT: /tmp/report.txt
+  RAW: /tmp/raw.md
+  TARGET: /tmp/target.md
+
+flow:
+- name: Clear report
+  command: cat /dev/null > $REPORT
+
+- name: Download HTML
+  command: curl -o $RAW $URL
+
+- name: Prepare words
+  command: "cat $RAW | tr ' ' '\\n' > $TARGET"
+  depends:
+  - Download HTML
+
+- name: Count words
+  command: sleep 1; echo 'Word count:' $(wc -l $TARGET) >> $REPORT
+  depends:
+  - Prepare words
+  - Clear report
+
+- name: Count distinct words
+  command: sleep 1; echo 'Distinct words:' $(sort -u $TARGET | wc -l) >> $REPORT
+  depends:
+  - Prepare words
+  - Clear report
+
+- name: Display Report
+  command: cat $REPORT | cowsay -t && sleep 3
+  depends:
+  - Count words
+  - Count distinct words
