@@ -120,13 +120,17 @@ class Task(object):
 
 
 def traverse(window, flow, progress_file):
-    while True:
+    last_done = 0
+
+    for i in count():
+        possibly_done = False
+
         runnable, running, incomplete, failed = get_run_status(flow)
         if not runnable and not running:
             panes = window.list_panes()
             dead_panes = get_dead_panes(panes)
             if len(panes) - 1 == len(dead_panes):
-                return not failed
+                possibly_done = True
 
         for task in runnable:
             try:
@@ -136,30 +140,29 @@ def traverse(window, flow, progress_file):
             else:
                 task.start(pane_id)
 
-        last_done = 0
-        for i in count():
-            try:
-                name, return_code = queue.get(timeout=0.1)
-                last_done = i
-                for task in incomplete + failed:
-                    if task.name == name:
-                        task.complete(return_code)
-                        break
-                break
-            except Queue.Empty:
-                if (i - last_done) % 20 == 19:
-                    kill_dead_panes(window)
-            finally:
-                print_rows(report(flow))
+        try:
+            name, return_code = queue.get(timeout=0.1)
+            last_done = i
+            for task in incomplete + failed:
+                if task.name == name:
+                    task.complete(return_code)
+                    break
+        except Queue.Empty:
+            if possibly_done:
+                return not failed
+            if (i - last_done) % 20 == 19:
+                kill_dead_panes(window)
+
+        print_rows(report(flow))
 
 
 def get_run_status(flow):
+    names = (lambda tasks: {t.name for t in tasks})
     incomplete = [task for task in flow if not task.completed]
     failed = [task for task in flow if task.return_code != 0]
-    names = (lambda tasks: {t.name for t in tasks})
+    running = [task for task in incomplete if task.started]
     runnable = [task for task in incomplete
                 if not task.started and not task.depends & (names(incomplete) | names(failed))]
-    running = [task for task in incomplete if task.started]
     return runnable, running, incomplete, failed
 
 
