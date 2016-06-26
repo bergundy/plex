@@ -64,14 +64,14 @@ trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
     free_panes = get_dead_panes(panes)
     if free_panes:
         pane = free_panes[0]
-        pane.cmd('respawn-pane', 'sh {} && exit'.format(script_file))
+        pane.cmd('respawn-pane', 'bash {} && exit'.format(script_file))
     else:
         if len(panes) >= 4:
             raise RuntimeError("Out of panes")
         else:
             pane = window.split_window()
             window.select_layout('tiled')
-            pane.send_keys('sh {} && exit'.format(script_file))
+            pane.send_keys('bash {} && exit'.format(script_file))
 
     return pane.get('pane_id')
 
