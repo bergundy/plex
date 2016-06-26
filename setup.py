@@ -12,7 +12,7 @@ setup(
     verion='0.1',
     keywords=['tmux', 'cli', 'task', 'runner'],
     install_requires=[
-        'tmuxp',
+        'tmuxp==0.11.0',
         'tabulate',
         'click',
         'pyyaml'
