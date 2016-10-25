@@ -9,7 +9,7 @@ setup(
     author='Roey Berman',
     author_email='roey.berman@gmail.com',
     py_modules=['plex'],
-    verion='0.1',
+    version='0.2',
     keywords=['tmux', 'cli', 'task', 'runner'],
     install_requires=[
         'tmuxp==0.11.0',

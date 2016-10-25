@@ -1,5 +1,5 @@
 env:
-  URL: 'https://raw.githubusercontent.com/bergundy/ec2grep/master/README.md'
+  URL: 'https://raw.githubusercontent.com/bergundy/plex/master/README.md'
   REPORT: /tmp/report.txt
   RAW: /tmp/raw.md
   TARGET: /tmp/target.md
