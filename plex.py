@@ -13,6 +13,7 @@ import tmuxp
 import tmuxp.exc
 import yaml
 import tempfile
+import pipes
 
 
 queue = Queue.Queue()
@@ -47,7 +48,7 @@ def get_window(env):
 def run_in_pane(window, task, progress_file):
     script_file = tempfile.mktemp()
     script = """echo 'plex>' Starting: {name!r} 1>&2
-echo 'plex>' {command!r} 1>&2
+echo 'plex>' {quoted_command} 1>&2
 function plex_cleanup {{
     RC=$?
     echo $RC {name!r} >> {progress_file}
@@ -55,7 +56,8 @@ function plex_cleanup {{
 }}
 trap plex_cleanup SIGINT SIGQUIT SIGTERM EXIT
 {command}
-""".format(name=task.name, command=task.command, progress_file=progress_file, script_file=script_file)
+""".format(name=task.name, command=task.command, quoted_command=pipes.quote(task.command),
+           progress_file=progress_file, script_file=script_file)
 
     with open(script_file, 'w') as f:
         f.write(script)
